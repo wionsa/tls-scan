@@ -1,0 +1,44 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual environments ─────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Environment variables/secrets ──────────────────────
+.env
+*.env
+
+# ── Auto-generated threat intel cache ────────────────────
+certverifier/data/cache/
+sslbl_threat_intel.csv
+
+# ── Certificate files (generated at runtime) ─────────────
+*.pem
+*.key
+*.crt
+*.cer
+verified_malicious_certs/
+
+# ── IDE/OS ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Logs and exports ───────────────────────────────────────
+*.log
+*.csv.bak
+ids_report_*.csv

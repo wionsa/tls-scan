@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ML-IDS Engine - X.509 Certificate Analysis</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div id="alert-banner"></div>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo-box">
+      <div class="logo-icon">🛡</div>
+      <div class="logo-text">
+        <div class="logo-title">ML-IDS Engine</div>
+        <div class="logo-sub">X.509 Certificate Intelligence System</div>
+      </div>
+    </div>
+    <div class="divider-v"></div>
+    <div class="sys-status">
+      <div class="status-chip"><div class="dot green" id="sniffer-dot"></div><span id="sniffer-label">Sniffer Active</span></div>
+      <div class="status-chip"><div class="dot green"></div><span>Port 443</span></div>
+      <div class="status-chip"><div class="dot yellow"></div><span id="mode-label">Live Mode: 1+2+3</span></div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div style="text-align:right">
+      <div id="clock"></div>
+      <div id="session-timer">SESSION: 00:00:00</div>
+    </div>
+  </div>
+</div>
+
+<div class="stat-band">
+  <div class="stat-tile t-total"><div class="stat-val" id="s-total">0</div><div class="stat-key">Total analyzed</div></div>
+  <div class="stat-tile t-clean"><div class="stat-val" id="s-clean">0</div><div class="stat-key">Clean/safe</div></div>
+  <div class="stat-tile t-sus"><div class="stat-val" id="s-sus">0</div><div class="stat-key">Suspicious</div></div>
+  <div class="stat-tile t-mal"><div class="stat-val" id="s-mal">0</div><div class="stat-key">Malicious/critical</div></div>
+  <div class="stat-tile t-rate"><div class="stat-val" id="s-rate">0%</div><div class="stat-key">Threat rate</div></div>
+  <div class="stat-tile t-uptime"><div class="stat-val" id="s-uptime">00:00:00</div><div class="stat-key">Uptime</div></div>
+</div>
+
+<div class="toolbar">
+  <div class="search-wrap">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input id="search-input" type="text" placeholder="Search by domain, IP, verdict..." autocomplete="off">
+  </div>
+  <span class="tb-label">Filter:</span>
+  <select id="filter-verdict" class="tb-select">
+    <option value="ALL">All verdicts</option>
+    <option value="SAFE">CLEAN/SAFE</option>
+    <option value="SUSPICIOUS">SUSPICIOUS</option>
+    <option value="MALICIOUS">MALICIOUS</option>
+  </select>
+  <select id="filter-source" class="tb-select">
+    <option value="ALL">All sources</option>
+    <option value="traffic">Traffic</option>
+    <option value="url">Domain/URL</option>
+    <option value="file">PEM file</option>
+  </select>
+  <button class="tb-btn" id="btn-pause" onclick="togglePause()">⏸ Pause</button>
+  <button class="tb-btn" id="btn-url" onclick="toggleUrl()">🔗 Analyze URL</button>
+  <button class="tb-btn" id="btn-upload" onclick="toggleUpload()">📂 Upload .PEM</button>
+  <button class="tb-btn" onclick="exportCSV()">⬇ CSV report</button>
+  <button class="tb-btn danger" onclick="clearAll()">✕ Clear</button>
+  <button class="tb-btn info" onclick="openInfo()">ⓘ Info</button>
+</div>
+
+<div class="input-zone" id="url-zone">
+  <div class="url-row">
+    <input id="url-input" type="text" placeholder="Enter domain or URL (e.g. example.com or https://example.com)" autocomplete="off" onkeydown="if(event.key==='Enter') analyzeUrl()">
+    <span class="mode-label">Mode:</span>
+    <select id="url-mode" class="mode-select">
+      <option value="123">All (1+2+3)</option>
+      <option value="1">Mode 1 - Bad issuers</option>
+      <option value="2">Mode 2 - Phishing templates</option>
+      <option value="3">Mode 3 - Structural anomaly</option>
+    </select>
+    <button class="url-btn" id="url-submit" onclick="analyzeUrl()">Analyze certificate</button>
+  </div>
+  <div class="url-results" id="url-results">Awaiting input</div>
+  <div class="zone-hint">The server establishes a TLS connection to the host, retrieves the certificate and analyzes it. The browser does not load site content</div>
+</div>
+
+<div class="input-zone" id="upload-zone">
+  <div id="pem-drop" onclick="document.getElementById('pem-file').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
+    ⬆ Drop .pem file here or click to select
+  </div>
+  <span class="mode-label">Mode:</span>
+  <select id="pem-mode" class="mode-select">
+    <option value="123">All (1+2+3)</option>
+    <option value="1">Mode 1 - Bad issuers</option>
+    <option value="2">Mode 2 - Phishing templates</option>
+    <option value="3">Mode 3 - Structural anomaly</option>
+  </select>
+  <input type="file" id="pem-file" accept=".pem,.crt,.cer" multiple onchange="handleFileSelect(event)">
+  <div class="upload-results" id="upload-results">No file selected</div>
+</div>
+
+<div class="body-wrap">
+  <div class="feed-panel">
+    <div class="panel-head">
+      <span class="panel-head-title">Live certificate feed</span>
+      <span id="row-count">0 records</span>
+    </div>
+    <div class="table-wrap" id="table-wrap">
+      <div id="empty-state">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <div class="es-title">Awaiting traffic</div>
+        <div class="es-sub">Sniffer is active - connections appear automatically</div>
+        <div class="es-sub" style="margin-top:6px;color:var(--accent)">or analyze a certificate by URL/.pem file above</div>
+      </div>
+      <table id="main-table" style="display:none">
+        <thead>
+          <tr>
+            <th onclick="sortBy('time')" data-col="time">Time</th>
+            <th data-col="source">Source</th>
+            <th onclick="sortBy('domain')" data-col="domain">Domain (CN)</th>
+            <th onclick="sortBy('ip')" data-col="ip">IP address</th>
+            <th onclick="sortBy('entropy')" data-col="entropy">Entropy H(X)</th>
+            <th onclick="sortBy('age')" data-col="age">Cert age</th>
+            <th data-col="puny">Punycode</th>
+            <th data-col="method">Method</th>
+            <th onclick="sortBy('verdict')" data-col="verdict">Verdict</th>
+          </tr>
+        </thead>
+        <tbody id="feed-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="detail-panel">
+    <div class="dp-head">
+      <span>Event details</span>
+      <span class="dp-expand" id="dp-expand" style="display:none" onclick="openModal()">Expand ↗</span>
+    </div>
+    <div class="dp-body" id="dp-body">
+      <div class="dp-empty">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v4M11 16h.01"/></svg>
+        <span>Select a row<br>to view details</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EVENT MODAL -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="m-title" id="modal-title">Event Details</div>
+        <div class="m-sub" id="modal-sub"></div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-tabs">
+      <div class="modal-tab active" data-pane="formatted" onclick="switchTab('formatted')">Overview</div>
+      <div class="modal-tab" data-pane="raw" onclick="switchTab('raw')">Raw JSON</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-pane active" id="pane-formatted"></div>
+      <div class="modal-pane" id="pane-raw"><pre class="json-view" id="json-view"></pre></div>
+    </div>
+    <div class="modal-foot">
+      <button class="tb-btn" onclick="copyJson()">Copy JSON</button>
+      <button class="tb-btn" onclick="closeModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- INFO MODAL (Ukrainian) -->
+<div class="modal-overlay" id="info-modal" onclick="if(event.target===this)closeInfo()">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="m-title">Довідка - методи детекції</div>
+        <div class="m-sub">ML-IDS Engine · принцип роботи</div>
+      </div>
+      <button class="modal-close" onclick="closeInfo()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="info-block">
+        <h3>Загальний принцип</h3>
+        <p>Система аналізує X.509 SSL/TLS сертифікати трьома гілками: інтелектуальною (ML-класифікація 14 полів через Naive Bayes), статистичною (ентропія, Punycode, вік сертифіката) та сигнатурною (порівняння з базою відомих загроз). Остаточний вердикт - результат поєднання цих методів.</p>
+      </div>
+
+      <div class="info-block">
+        <h3>Три режими сигнатурної детекції</h3>
+        <p>Режими спрацьовують лише коли 14-вимірний вектор ознак сертифіката <strong>повністю збігся</strong> зі зразком у базі сигнатур. Режим визначає, на яку ознаку дивитись, щоб класифікувати тип загрози.</p>
+        <div class="info-mode">
+          <div class="im-num">1</div>
+          <div class="im-body"><strong>Bad issuers</strong> - аналіз поля видавця (Issuer.CN). Спрацьовує коли видавець сертифіката типовий для C2-серверів ботнетів. Відповідає за виявлення ботнет-інфраструктури.</div>
+        </div>
+        <div class="info-mode">
+          <div class="im-num">2</div>
+          <div class="im-body"><strong>Phishing templates</strong> - аналіз поля суб'єкта (Subject.CN). Спрацьовує коли ім'я в сертифікаті відповідає шаблонам масових фішингових утиліт.</div>
+        </div>
+        <div class="info-mode">
+          <div class="im-num">3</div>
+          <div class="im-body"><strong>Structural anomaly</strong> - спрацьовує коли вектор збігся з відомою загрозою, але це ні ботнет-видавець, ні фішинг-шаблон. Найзагальніший режим — ловить нетипові загрози за повним 14-параметричним відбитком.</div>
+        </div>
+        <p style="margin-top:10px"><strong>Режим «All (1+2+3)»</strong> вмикає всі три фільтри одночасно для максимального покриття. Живий моніторинг трафіку завжди працює в цьому режимі. Для ручного аналізу (URL/PEM) режим можна обрати окремо.</p>
+      </div>
+
+      <div class="info-block">
+        <h3>Евристичні методи (працюють завжди)</h3>
+        <table class="info-table">
+          <tr><th>Метод</th><th>Умова спрацювання</th><th>Тип загрози</th></tr>
+          <tr><td>Ентропія Шеннона</td><td>H(X) &gt; 4.2 bits</td><td>DGA/ботнет</td></tr>
+          <tr><td>Punycode (IDN)</td><td>префікс xn-- у домені</td><td>Homograph-атака</td></tr>
+          <tr><td>Вік сертифіката</td><td>&lt; 3 днів + самопідписаний</td><td>Свіжий фішинг</td></tr>
+        </table>
+      </div>
+
+      <div class="info-block">
+        <h3>Порогові значення</h3>
+        <div class="info-thr"><span class="t-name">Поріг ентропії (DGA)</span><span class="t-val">H &gt; 4.2 bits</span></div>
+        <div class="info-thr"><span class="t-name">Свіжий сертифікат</span><span class="t-val">&lt; 3 днів</span></div>
+        <div class="info-thr"><span class="t-name">Вікно дедуплікації</span><span class="t-val">20 с/IP</span></div>
+      </div>
+
+      <div class="info-block">
+        <h3>Джерела подій</h3>
+        <div class="info-thr"><span class="t-name"><span class="src-tag src-traffic">ТРАФІК</span></span><span class="t-name" style="text-align:right">Перехоплено сніффером з мережі (порт 443)</span></div>
+        <div class="info-thr"><span class="t-name"><span class="src-tag src-url">ДОМЕН</span></span><span class="t-name" style="text-align:right">Ручна перевірка за введеним доменом/URL</span></div>
+        <div class="info-thr"><span class="t-name"><span class="src-tag src-file">ФАЙЛ</span></span><span class="t-name" style="text-align:right">Аналіз завантаженого .pem файлу</span></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="tb-btn" onclick="closeInfo()">Закрити</button>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
